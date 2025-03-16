@@ -13,7 +13,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Start FreeBSD VM (Fixed Version)
-        uses: vmactions/freebsd-vm@v1.0.0  # 使用官方稳定版本
+        uses: vmactions/freebsd-vm@v1.0.0  
         with:
           iso: https://download.freebsd.org/ftp/releases/VM-IMAGES/13.2-RELEASE/amd64/Latest/FreeBSD-13.2-RELEASE-amd64.qcow2.xz
           memory: 4096
@@ -22,37 +22,32 @@ jobs:
       - name: Prepare VM Environment
         shell: vmssh
         run: |
-          # 更新包管理并安装必要工具
           sudo pkg update -f
           sudo pkg install -y node18 npm-node18 git-lite rsync
 
-          # 安装 pnpm
           sudo npm install -g pnpm
 
-          # 同步宿主机代码到虚拟机（注意路径匹配）
           rsync -avz /github/workspace/ /home/runner/
 
       - name: Build Project
         shell: vmssh
         run: |
-          cd /home/runner/<your-project-path>  # 替换为实际项目路径
+          cd /home/runner/<your-project-path>  
           pnpm install
           pnpm run build:web
 
-          # 打包构建产物
           mkdir -p dist
           tar -czvf dist/freebsd-build-$(date +%Y%m%d).tar.gz -C build .
 
       - name: Export Artifacts
         shell: vmssh
         run: |
-          # 将产物复制到宿主机共享目录
           cp /home/runner/<your-project-path>/dist/*.tar.gz /github/workspace/
 
       - name: Upload Artifact (Fixed Version)
-        uses: actions/upload-artifact@v4  # 升级至最新版本
+        uses: actions/upload-artifact@v4  
         with:
           name: freebsd-build
           path: |
             *.tar.gz
-            !node_modules/**  # 排除不需要的文件
+            !node_modules/**  #
