@@ -1,46 +1,36 @@
-name: FreeBSD Build and Package
 
-on:
-  push:
-    branches: [ main ]
+name: Test
+
+on: [push]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
-    name: Build and Package on FreeBSD
+    name: A job to run test in FreeBSD
     env:
-      NODE_ENV: production
-    
+      MYTOKEN : ${{ secrets.MYTOKEN }}
+      MYTOKEN2: "value2"
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Build in FreeBSD VM
-      uses: vmactions/freebsd-vm@v1.1.9
+    - uses: actions/checkout@v4
+    - name: Test in FreeBSD
+      id: test
+      uses: vmactions/freebsd-vm@v1
       with:
+        envs: 'MYTOKEN MYTOKEN2'
         usesh: true
-        prepare: |  # 分步安装依赖
-          pkg install -y node npm
-          npm install -g pnpm  # 通过npm安装pnpm
-        run: |
-          # 验证安装
-          pnpm --version
-          
-          # 构建流程
-          pnpm install
-          pnpm run build:web
-          
-          # 创建目录结构
-          cd build
-          mkdir -p data
-          echo "module.exports = {}" > config.cjs
-          cd ..
-          
-          # 打包构建产物
-          tar -czvf build-artifact.tar.gz build/
+        prepare: |
+          pkg install -y curl
 
-    - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-package
-        path: build-artifact.tar.gz
+        run: |
+          pwd
+          ls -lah
+          whoami
+          env
+          freebsd-version
+          sysctl hw.model
+          sysctl hw.ncpu
+          sysctl hw.physmem
+          sysctl hw.usermem
+
+
+
