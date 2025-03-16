@@ -1,53 +1,40 @@
-name: FreeBSD Native Build (Fixed)
-
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Start FreeBSD VM (Fixed Version)
-        uses: vmactions/freebsd-vm@v1.0.0  
+      - name: Start FreeBSD VM
+        uses: vmactions/freebsd-vm@v1.0.0
         with:
           iso: https://download.freebsd.org/ftp/releases/VM-IMAGES/13.2-RELEASE/amd64/Latest/FreeBSD-13.2-RELEASE-amd64.qcow2.xz
           memory: 4096
-          cpu: 4
+          ssh: true  # 关键！启用 SSH 服务
+          ssh-user: root  # 默认用户
+          ssh-password: freebsd  # 默认密码
+
+      - name: Install SSH Tools in VM
+        shell: bash  # 使用宿主机的 shell
+        run: |
+          # 通过 QEMU Guest Agent 执行虚拟机内命令
+          echo "Installing OpenSSH..."
+          qemu-ga -c 'sudo pkg install -y openssh rsync'
+
+          # 启动 SSH 服务
+          qemu-ga -c 'sudo service sshd start'
 
       - name: Prepare VM Environment
-        shell: vmssh
+        shell: ssh  # 使用原生 SSH 连接
+        env:
+          SSH_PORT: 2222  # 默认转发端口
         run: |
           sudo pkg update -f
-          sudo pkg install -y node18 npm-node18 git-lite rsync
-
+          sudo pkg install -y node18 npm-node18 git-lite
           sudo npm install -g pnpm
-
-          rsync -avz /github/workspace/ /home/runner/
+          rsync -avz -e "ssh -p $SSH_PORT" /github/workspace/ root@localhost:/build
 
       - name: Build Project
-        shell: vmssh
+        shell: ssh
         run: |
-          cd /home/runner/<your-project-path>  
+          cd /build
           pnpm install
           pnpm run build:web
-
-          mkdir -p dist
-          tar -czvf dist/freebsd-build-$(date +%Y%m%d).tar.gz -C build .
-
-      - name: Export Artifacts
-        shell: vmssh
-        run: |
-          cp /home/runner/<your-project-path>/dist/*.tar.gz /github/workspace/
-
-      - name: Upload Artifact (Fixed Version)
-        uses: actions/upload-artifact@v4  
-        with:
-          name: freebsd-build
-          path: |
-            *.tar.gz
-            !node_modules/**  #
+          tar -czvf freebsd-build.tar.gz build/
