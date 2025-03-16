@@ -19,13 +19,18 @@ jobs:
       uses: vmactions/freebsd-vm@v1.1.9
       with:
         usesh: true
-        prepare: |
-          pkg install -y node npm pnpm
+        prepare: |  # 分步安装依赖
+          pkg install -y node npm
+          npm install -g pnpm  # 通过npm安装pnpm
         run: |
+          # 验证安装
+          pnpm --version
+          
+          # 构建流程
           pnpm install
           pnpm run build:web
           
-          # 创建目录和配置文件
+          # 创建目录结构
           cd build
           mkdir -p data
           echo "module.exports = {}" > config.cjs
@@ -35,7 +40,7 @@ jobs:
           tar -czvf build-artifact.tar.gz build/
 
     - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v4  # 修正为最新v4版本
+      uses: actions/upload-artifact@v4
       with:
         name: build-package
         path: build-artifact.tar.gz
