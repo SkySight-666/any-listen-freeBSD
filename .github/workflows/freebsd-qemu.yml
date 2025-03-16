@@ -1,40 +1,109 @@
+name: FreeBSD Native Build Pipeline
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+    inputs:
+      debug_mode:
+        description: 'Enable debug mode'
+        required: false
+        default: 'false'
+
 jobs:
-  build:
+  freebsd-build:
+    name: Build on FreeBSD
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
     steps:
-      - name: Start FreeBSD VM
+      # ========== 初始化阶段 ==========
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ========== 虚拟机配置阶段 ==========
+      - name: Start FreeBSD 13.2 VM
         uses: vmactions/freebsd-vm@v1.0.0
+        id: freebsd-vm
         with:
           iso: https://download.freebsd.org/ftp/releases/VM-IMAGES/13.2-RELEASE/amd64/Latest/FreeBSD-13.2-RELEASE-amd64.qcow2.xz
-          memory: 4096
-          ssh: true  # 关键！启用 SSH 服务
-          ssh-user: root  # 默认用户
-          ssh-password: freebsd  # 默认密码
+          memory: 4096M
+          cpu: 4
+          ssh: true
+          ssh-user: runner
+          ssh-password: freebsd
+          args: >
+            -netdev user,id=net0,hostfwd=tcp::2222-:22
+            -device virtio-net-pci,netdev=net0
 
-      - name: Install SSH Tools in VM
-        shell: bash  # 使用宿主机的 shell
-        run: |
-          # 通过 QEMU Guest Agent 执行虚拟机内命令
-          echo "Installing OpenSSH..."
-          qemu-ga -c 'sudo pkg install -y openssh rsync'
-
-          # 启动 SSH 服务
-          qemu-ga -c 'sudo service sshd start'
-
-      - name: Prepare VM Environment
-        shell: ssh  # 使用原生 SSH 连接
+      # ========== 虚拟机环境准备阶段 ==========
+      - name: Setup FreeBSD environment
         env:
-          SSH_PORT: 2222  # 默认转发端口
+          SSH_PORT: 2222
         run: |
-          sudo pkg update -f
-          sudo pkg install -y node18 npm-node18 git-lite
-          sudo npm install -g pnpm
-          rsync -avz -e "ssh -p $SSH_PORT" /github/workspace/ root@localhost:/build
+          # 安装基础工具链
+          ssh-keyscan -p $SSH_PORT localhost >> ~/.ssh/known_hosts
+          sshpass -p freebsd ssh -p $SSH_PORT runner@localhost \
+            "sudo pkg update -f && \
+             sudo pkg install -y \
+             node18 npm-node18 \
+             git-lite rsync \
+             gcc12 gmake python3"
 
-      - name: Build Project
-        shell: ssh
+          # 配置全局路径
+          sshpass -p freebsd ssh -p $SSH_PORT runner@localhost \
+            "echo 'export PATH=\"/usr/local/bin:/usr/local/sbin:$PATH\"' | sudo tee -a /etc/profile"
+
+          # 安装 pnpm
+          sshpass -p freebsd ssh -p $SSH_PORT runner@localhost \
+            "sudo npm install -g pnpm@8.15.5"
+
+          # 同步项目代码到虚拟机
+          rsync -avz -e "ssh -p $SSH_PORT -o StrictHostKeyChecking=no" \
+            --exclude='node_modules/' \
+            --exclude='.git/' \
+            ./ runner@localhost:/home/runner/project/
+
+      # ========== 构建阶段 ==========
+      - name: Build project
+        env:
+          SSH_PORT: 2222
         run: |
-          cd /build
-          pnpm install
-          pnpm run build:web
-          tar -czvf freebsd-build.tar.gz build/
+          # 执行构建命令
+          sshpass -p freebsd ssh -p $SSH_PORT runner@localhost \
+            "cd /home/runner/project && \
+             pnpm install --frozen-lockfile && \
+             pnpm run build:web"
+
+          # 创建构建产物目录
+          sshpass -p freebsd ssh -p $SSH_PORT runner@localhost \
+            "mkdir -p /home/runner/artifacts && \
+             tar -czvf /home/runner/artifacts/build-$(date +%Y%m%d-%H%M%S).tar.gz -C /home/runner/project/build ."
+
+          # 将产物复制回宿主机
+          rsync -avz -e "ssh -p $SSH_PORT -o StrictHostKeyChecking=no" \
+            runner@localhost:/home/runner/artifacts/ ./artifacts/
+
+      # ========== 产物处理阶段 ==========
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: freebsd-build
+          path: |
+            artifacts/*.tar.gz
+            !**/*.log
+          retention-days: 7
+
+      # ========== 清理阶段 ==========
+      - name: Cleanup VM
+        if: always()
+        run: |
+          sshpass -p freebsd ssh -p 2222 runner@localhost \
+            "sudo rm -rf /home/runner/project /home/runner/artifacts"
