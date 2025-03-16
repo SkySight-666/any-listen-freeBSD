@@ -1,109 +1,42 @@
-name: FreeBSD Native Build Pipeline
+name: FreeBSD Build and Package
 
 on:
   push:
     branches: [ main ]
-    paths:
-      - 'src/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-  workflow_dispatch:
-    inputs:
-      debug_mode:
-        description: 'Enable debug mode'
-        required: false
-        default: 'false'
 
 jobs:
-  freebsd-build:
-    name: Build on FreeBSD
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: Build and Package on FreeBSD
+    env:
+      NODE_ENV: production
     
     steps:
-      # ========== 初始化阶段 ==========
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      # ========== 虚拟机配置阶段 ==========
-      - name: Start FreeBSD 13.2 VM
-        uses: vmactions/freebsd-vm@v1.0.0
-        id: freebsd-vm
-        with:
-          iso: https://download.freebsd.org/ftp/releases/VM-IMAGES/13.2-RELEASE/amd64/Latest/FreeBSD-13.2-RELEASE-amd64.qcow2.xz
-          memory: 4096M
-          cpu: 4
-          ssh: true
-          ssh-user: runner
-          ssh-password: freebsd
-          args: >
-            -netdev user,id=net0,hostfwd=tcp::2222-:22
-            -device virtio-net-pci,netdev=net0
-
-      # ========== 虚拟机环境准备阶段 ==========
-      - name: Setup FreeBSD environment
-        env:
-          SSH_PORT: 2222
+    - name: Build in FreeBSD VM
+      uses: vmactions/freebsd-vm@v1.1.9
+      with:
+        usesh: true
+        prepare: |
+          pkg install -y node npm pnpm
         run: |
-          # 安装基础工具链
-          ssh-keyscan -p $SSH_PORT localhost >> ~/.ssh/known_hosts
-          sshpass -p freebsd ssh -p $SSH_PORT runner@localhost \
-            "sudo pkg update -f && \
-             sudo pkg install -y \
-             node18 npm-node18 \
-             git-lite rsync \
-             gcc12 gmake python3"
+          # 安装依赖并构建
+          pnpm install
+          pnpm run build:web
+          
+          # 创建目录结构
+          cd build
+          mkdir -p data
+          echo "module.exports = {}" > config.cjs
+          cd ..
+          
+          # 打包构建产物
+          tar -czvf build-artifact.tar.gz build/
 
-          # 配置全局路径
-          sshpass -p freebsd ssh -p $SSH_PORT runner@localhost \
-            "echo 'export PATH=\"/usr/local/bin:/usr/local/sbin:$PATH\"' | sudo tee -a /etc/profile"
-
-          # 安装 pnpm
-          sshpass -p freebsd ssh -p $SSH_PORT runner@localhost \
-            "sudo npm install -g pnpm@8.15.5"
-
-          # 同步项目代码到虚拟机
-          rsync -avz -e "ssh -p $SSH_PORT -o StrictHostKeyChecking=no" \
-            --exclude='node_modules/' \
-            --exclude='.git/' \
-            ./ runner@localhost:/home/runner/project/
-
-      # ========== 构建阶段 ==========
-      - name: Build project
-        env:
-          SSH_PORT: 2222
-        run: |
-          # 执行构建命令
-          sshpass -p freebsd ssh -p $SSH_PORT runner@localhost \
-            "cd /home/runner/project && \
-             pnpm install --frozen-lockfile && \
-             pnpm run build:web"
-
-          # 创建构建产物目录
-          sshpass -p freebsd ssh -p $SSH_PORT runner@localhost \
-            "mkdir -p /home/runner/artifacts && \
-             tar -czvf /home/runner/artifacts/build-$(date +%Y%m%d-%H%M%S).tar.gz -C /home/runner/project/build ."
-
-          # 将产物复制回宿主机
-          rsync -avz -e "ssh -p $SSH_PORT -o StrictHostKeyChecking=no" \
-            runner@localhost:/home/runner/artifacts/ ./artifacts/
-
-      # ========== 产物处理阶段 ==========
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        if: success()
-        with:
-          name: freebsd-build
-          path: |
-            artifacts/*.tar.gz
-            !**/*.log
-          retention-days: 7
-
-      # ========== 清理阶段 ==========
-      - name: Cleanup VM
-        if: always()
-        run: |
-          sshpass -p freebsd ssh -p 2222 runner@localhost \
-            "sudo rm -rf /home/runner/project /home/runner/artifacts"
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: build-package
+        path: build-artifact.tar.gz
