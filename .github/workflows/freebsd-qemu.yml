@@ -19,9 +19,13 @@ jobs:
       with:
         node-version: 20
         cache: 'pnpm'
-        
-    - name: Install pnpm
-      run: corepack enable && pnpm install -g pnpm
+
+    # 新增 pnpm 专用安装步骤
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v2
+      with:
+        version: 8
+        run_install: false
 
     - name: Install dependencies
       run: pnpm i
@@ -31,8 +35,7 @@ jobs:
 
     - name: Create data directory
       run: |
-        cd build
-        mkdir -p data
+        mkdir -p build/data
 
     - name: Archive build folder
       run: zip -r build.zip build
