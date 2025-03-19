@@ -22,15 +22,7 @@ jobs:
           pkg install -y curl
 
         run: |
-          pwd
-          ls -lah
-          whoami
-          env
-          freebsd-version
-          sysctl hw.model
-          sysctl hw.ncpu
-          sysctl hw.physmem
-          sysctl hw.usermem
+          pkg -y
 
 
 
