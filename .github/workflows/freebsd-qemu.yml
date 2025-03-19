@@ -1,28 +1,44 @@
+name: Build and Package
 
-name: Test
-
-on: [push]
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
-    name: A job to run test in FreeBSD
-    env:
-      MYTOKEN : ${{ secrets.MYTOKEN }}
-      MYTOKEN2: "value2"
+
     steps:
-    - uses: actions/checkout@v4
-    - name: Test in FreeBSD
-      id: test
-      uses: vmactions/freebsd-vm@v1
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
       with:
-        envs: 'MYTOKEN MYTOKEN2'
-        usesh: true
-        prepare: |
-          pkg install -y curl
+        node-version: 20
+        cache: 'pnpm'
+        
+    - name: Install pnpm
+      run: corepack enable && pnpm install -g pnpm
 
-        run: |
-          pkg -y
+    - name: Install dependencies
+      run: pnpm i
 
+    - name: Build project
+      run: pnpm run build:web
 
+    - name: Create data directory
+      run: |
+        cd build
+        mkdir -p data
 
+    - name: Archive build folder
+      run: zip -r build.zip build
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-package
+        path: build.zip
