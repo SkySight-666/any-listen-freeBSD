@@ -1,47 +1,53 @@
-name: Build and Package
+name: Test
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+on: [push]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
-
+    name: A job to run test in FreeBSD
+    env:
+      MYTOKEN : ${{ secrets.MYTOKEN }}
+      MYTOKEN2: "value2"
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
+    - uses: actions/checkout@v4
+    - name: Test in FreeBSD
+      id: test
+      uses: vmactions/freebsd-vm@v1
       with:
-        node-version: 20
-        cache: 'pnpm'
-
-    # 新增 pnpm 专用安装步骤
-    - name: Setup pnpm
-      uses: pnpm/action-setup@v2
-      with:
-        version: 8
-        run_install: false
-
-    - name: Install dependencies
-      run: pnpm i
-
-    - name: Build project
-      run: pnpm run build:web
-
-    - name: Create data directory
-      run: |
-        mkdir -p build/data
-
-    - name: Archive build folder
-      run: zip -r build.zip build
-
+        envs: 'MYTOKEN MYTOKEN2'
+        usesh: true
+        prepare: |
+          pkg install -y curl git bash node zip gcc gmake python3
+          npm intsall -g pnpm@9.15.5   
+        run: |
+          #get sourcecode
+          echo "=====================Pull Packages====================="
+          git clone https://github.com/SkySight-666/any-listen-freeBSD.git
+          cd any-listen-freeBSD
+          #install modules
+          echo "=====================Install Modules====================="
+          pnpm i
+          #builid website
+          echo "=====================Build Website====================="
+          pnpm run build:web
+          cd build
+          mkdir data
+          cd ..
+          #package output
+          echo "=====================Package Output====================="
+          zip -r Output.zip build
+          mkdir ../output
+          mv Output.zip ../output
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: build-package
-        path: build.zip
+        name: Any_Listen_FreeBSD
+        path: |
+          output/*
+    
+
+          
+
+
+
