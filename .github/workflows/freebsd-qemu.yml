@@ -19,7 +19,7 @@ jobs:
         usesh: true
         prepare: |
           pkg install -y curl git bash node npm zip gcc gmake python3
-          npm intsall -g pnpm@9.15.5   
+          npm install -g pnpm@9.15.5   
         run: |
           #get sourcecode
           echo "=====================Pull Packages====================="
